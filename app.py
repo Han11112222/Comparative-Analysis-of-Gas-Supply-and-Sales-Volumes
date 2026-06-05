@@ -90,7 +90,7 @@ try:
     # 디폴트 시작월: 2017-01
     default_start_val = '2017-01' if '2017-01' in month_list else month_list[0]
     
-    # [수정] 디폴트 종료월: 무조건 2025-12로 고정
+    # 디폴트 종료월: 무조건 2025-12로 고정
     default_end_val = '2025-12'
     if default_end_val not in month_list:
         default_end_val = month_list[-1]
@@ -123,10 +123,10 @@ try:
     df_filtered_plot1 = df_plot1.loc[mask_plot1]
     
     fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-    # [수정] 공급량은 딥 블루, 판매량은 웜 오렌지로 대비를 확실하게 주었습니다.
-    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['공급량'], mode='lines+markers', name=supply_label, line=dict(color='#005b96', width=2)), secondary_y=False)
-    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name='판매량', line=dict(color='#e67e22', width=2)), secondary_y=False)
-    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot')), secondary_y=True)
+    # [수정] hovertemplate 추가하여 M 단위를 없애고 콤마 표시 및 GJ, °C 단위 명시
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['공급량'], mode='lines+markers', name=supply_label, line=dict(color='#005b96', width=2), hovertemplate='%{y:,.0f} GJ'), secondary_y=False)
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name='판매량', line=dict(color='#e67e22', width=2), hovertemplate='%{y:,.0f} GJ'), secondary_y=False)
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot'), hovertemplate='%{y:.1f} °C'), secondary_y=True)
     
     fig1.update_layout(
         hovermode='x unified', 
@@ -152,9 +152,9 @@ try:
     df_grouped = df_filtered.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
     
     fig2 = go.Figure()
-    # [수정] 막대그래프 역시 1번 그래프와 동일한 색상 테마 적용
-    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name='공급량 누적', marker_color='#005b96'))
-    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#e67e22'))
+    # [수정] 누적 막대그래프에도 hovertemplate 추가
+    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name='공급량 누적', marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
+    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
     
     fig2.update_layout(
         barmode='group', 
