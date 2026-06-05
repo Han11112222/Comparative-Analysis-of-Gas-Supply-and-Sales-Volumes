@@ -85,20 +85,13 @@ try:
     
     st.markdown("### 📅 분석 기간 설정")
     
-    # [수정] 드롭다운(Selectbox)을 위한 YYYY-MM 리스트 생성
     month_list = df_master['년월'].dt.strftime('%Y-%m').sort_values().unique().tolist()
     
-    # 디폴트 시작월: 2017-01 (데이터에 없으면 가장 빠른 달)
+    # 디폴트 시작월: 2017-01
     default_start_val = '2017-01' if '2017-01' in month_list else month_list[0]
     
-    # 디폴트 종료월: 만 1년 데이터가 꽉 차지 않았으면 전년도 12월을 반환하는 로직
-    max_date = df_master['년월'].max()
-    if max_date.month == 12:
-        default_end_val = f"{max_date.year}-12"
-    else:
-        default_end_val = f"{max_date.year - 1}-12"
-        
-    # 만약 계산된 디폴트 종료월이 데이터 리스트에 없다면 가장 최신 달로 설정
+    # [수정] 디폴트 종료월: 무조건 2025-12로 고정
+    default_end_val = '2025-12'
     if default_end_val not in month_list:
         default_end_val = month_list[-1]
     
@@ -108,7 +101,6 @@ try:
     with col2:
         end_month_str = st.selectbox("종료 월", options=month_list, index=month_list.index(default_end_val))
     
-    # 선택된 YYYY-MM 문자열을 다시 datetime으로 변환하여 필터링
     start_date = pd.to_datetime(start_month_str)
     end_date = pd.to_datetime(end_month_str)
     
@@ -131,8 +123,9 @@ try:
     df_filtered_plot1 = df_plot1.loc[mask_plot1]
     
     fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['공급량'], mode='lines+markers', name=supply_label, line=dict(color='#005b96', width=2)), secondary_y=False) # 진한 푸른색
-    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name='판매량', line=dict(color='#6497b1', width=2)), secondary_y=False) # 연한 푸른색
+    # [수정] 공급량은 딥 블루, 판매량은 웜 오렌지로 대비를 확실하게 주었습니다.
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['공급량'], mode='lines+markers', name=supply_label, line=dict(color='#005b96', width=2)), secondary_y=False)
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name='판매량', line=dict(color='#e67e22', width=2)), secondary_y=False)
     fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot')), secondary_y=True)
     
     fig1.update_layout(
@@ -159,9 +152,9 @@ try:
     df_grouped = df_filtered.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
     
     fig2 = go.Figure()
-    # [수정] 세련된 푸른색 계열(Deep Blue & Light Blue) 적용
+    # [수정] 막대그래프 역시 1번 그래프와 동일한 색상 테마 적용
     fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name='공급량 누적', marker_color='#005b96'))
-    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#6497b1'))
+    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#e67e22'))
     
     fig2.update_layout(
         barmode='group', 
