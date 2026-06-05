@@ -32,20 +32,15 @@ def load_data():
     return df_sales, df_supply, df_temp
 
 def preprocess_data(df_sales, df_supply, df_temp):
-    # 1. 컬럼명 표준화 (실제 시트에 있는 '날짜'를 코드가 인식할 '년월'로 변경)
-    def standardize_date(df):
-        if '날짜' in df.columns:
-            df.rename(columns={'날짜': '년월'}, inplace=True)
-        return df
-    
-    df_sales = standardize_date(df_sales)
-    df_supply = standardize_date(df_supply)
-    df_temp = standardize_date(df_temp)
-    
-    # 합산할 때 제외해야 하는 컬럼들 목록
+    # 1. 무적의 컬럼명 전처리 (공백 제거 및 첫 번째 열을 '년월'로 강제 변경)
+    for df in [df_sales, df_supply, df_temp]:
+        df.columns = df.columns.str.strip() # 보이지 않는 띄어쓰기 제거
+        df.rename(columns={df.columns[0]: '년월'}, inplace=True) # 무조건 A열을 '년월'로 변경
+
+    # 합산할 때 제외해야 하는 기본 정보 컬럼들
     exclude_cols = ['년월', '연', '월', '평균기온', '날짜']
     
-    # 2. 판매량 합산 (숫자의 콤마(,) 제거 후 여러 용도 컬럼을 모두 더함)
+    # 2. 판매량 합산 (콤마 제거 및 숫자로 변환 후 합산)
     sales_items = [c for c in df_sales.columns if c not in exclude_cols]
     for col in sales_items:
         df_sales[col] = df_sales[col].astype(str).str.replace(',', '', regex=False)
@@ -53,7 +48,7 @@ def preprocess_data(df_sales, df_supply, df_temp):
     df_sales['총판매량'] = df_sales[sales_items].sum(axis=1)
     df_sales_monthly = df_sales[['년월', '총판매량']].rename(columns={'총판매량': '판매량'})
     
-    # 3. 공급량 합산 (숫자의 콤마(,) 제거 후 여러 용도 컬럼을 모두 더함)
+    # 3. 공급량 합산
     supply_items = [c for c in df_supply.columns if c not in exclude_cols]
     for col in supply_items:
         df_supply[col] = df_supply[col].astype(str).str.replace(',', '', regex=False)
@@ -61,23 +56,21 @@ def preprocess_data(df_sales, df_supply, df_temp):
     df_supply['총공급량'] = df_supply[supply_items].sum(axis=1)
     df_supply_monthly = df_supply[['년월', '총공급량']].rename(columns={'총공급량': '공급량'})
     
-    # 4. 기온 데이터 처리 (컬럼명에 '기온'이 들어간 항목 추출)
-    temp_col = [c for c in df_temp.columns if '기온' in c]
-    if temp_col:
-        df_temp_monthly = df_temp[['년월', temp_col[0]]].rename(columns={temp_col[0]: '평균기온'})
+    # 4. 기온 데이터 추출 (기온 시트 또는 공급량 시트에서 '평균기온' 찾기)
+    if '평균기온' in df_temp.columns:
+        df_temp_monthly = df_temp[['년월', '평균기온']]
+    elif '평균기온' in df_supply.columns: # 기온 시트가 이상할 경우 캡처 화면에 있던 공급량 시트의 기온 활용
+        df_temp_monthly = df_supply[['년월', '평균기온']]
     else:
-        # 혹시 기온 시트 구조가 다르면 공급량 시트에 있는 평균기온을 활용
-        if '평균기온' in df_supply.columns:
-            df_temp_monthly = df_supply[['년월', '평균기온']]
-        else:
-            df_temp_monthly = pd.DataFrame({'년월': df_supply['년월'], '평균기온': 0})
+        df_temp_monthly = pd.DataFrame({'년월': df_supply['년월'], '평균기온': 0})
             
     # 5. 데이터 병합
     df_merged = pd.merge(df_supply_monthly, df_sales_monthly, on='년월', how='inner')
     df_merged = pd.merge(df_merged, df_temp_monthly, on='년월', how='inner')
     
     # 시간 순 정렬 및 파생변수 생성
-    df_merged['년월'] = pd.to_datetime(df_merged['년월'])
+    df_merged['년월'] = pd.to_datetime(df_merged['년월'], errors='coerce')
+    df_merged = df_merged.dropna(subset=['년월']) # 날짜 변환 실패한 빈 줄 등 제거
     df_merged = df_merged.sort_values('년월').reset_index(drop=True)
     
     df_merged['연도'] = df_merged['년월'].dt.year
@@ -90,7 +83,7 @@ def preprocess_data(df_sales, df_supply, df_temp):
     
     return df_merged
 
-# --- 시각화 함수들 (동일) ---
+# --- 시각화 함수들 ---
 def plot_monthly_trend(df):
     fig, ax1 = plt.subplots(figsize=(14, 6))
     x = df['년월'].dt.strftime('%Y-%m')
@@ -162,7 +155,7 @@ try:
         df_sales, df_supply, df_temp = load_data()
         df_master = preprocess_data(df_sales, df_supply, df_temp)
     
-    st.success("데이터 로딩 및 콤마 처리, 전처리 완료!")
+    st.success("데이터 로딩 및 안전 전처리 완료!")
     
     st.markdown("---")
     st.subheader("1. 월별 공급량/판매량 추이 및 기온 상관관계")
