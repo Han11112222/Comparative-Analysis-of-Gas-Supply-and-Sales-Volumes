@@ -110,21 +110,26 @@ try:
     st.markdown("---")
     st.subheader("1. 월별 공급량/판매량(GJ) 및 기온 추이")
     
-    lag_active = st.toggle("🔄 1개월 Lagging 반영 (공급량 실적을 1개월 뒤로 시프트하여 가정용 청구 시차 보정)")
+    # [수정] 토글 설명 텍스트 변경
+    lag_active = st.toggle("🔄 1개월 Lagging 반영 (판매량 실적을 1개월 앞으로 당겨서 가정용 청구 시차 보정)")
     
     df_plot1 = df_master.copy()
     if lag_active:
-        df_plot1['공급량'] = df_plot1['공급량'].shift(1)
-        supply_label = '공급량 (1개월 Lag)'
+        # [수정] 공급량이 아닌 판매량을 shift(-1)하여 한 달 전으로 당겨옵니다.
+        df_plot1['판매량'] = df_plot1['판매량'].shift(-1)
+        sales_label = '판매량 (1개월 Lag)'
+        supply_label = '공급량'
     else:
+        sales_label = '판매량'
         supply_label = '공급량'
         
     mask_plot1 = (df_plot1['년월'] >= start_date) & (df_plot1['년월'] <= end_date)
     df_filtered_plot1 = df_plot1.loc[mask_plot1]
     
     fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+    # [수정] name에 supply_label과 sales_label을 각각 적용
     fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['공급량'], mode='lines+markers', name=supply_label, line=dict(color='#005b96', width=2), hovertemplate='%{y:,.0f} GJ'), secondary_y=False)
-    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name='판매량', line=dict(color='#e67e22', width=2), hovertemplate='%{y:,.0f} GJ'), secondary_y=False)
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name=sales_label, line=dict(color='#e67e22', width=2), hovertemplate='%{y:,.0f} GJ'), secondary_y=False)
     fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot'), hovertemplate='%{y:.1f} °C'), secondary_y=True)
     
     fig1.update_layout(
@@ -148,12 +153,12 @@ try:
     else:
         group_col = '분기명'
         
-    # [핵심 수정] 막대그래프에도 토글 상태가 반영된 데이터(df_filtered_plot1)를 사용하도록 동기화
     df_grouped = df_filtered_plot1.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
     
     fig2 = go.Figure()
+    # [수정] 막대그래프 범례 이름에도 라벨 변수 적용
     fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name=supply_label, marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
-    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
+    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name=sales_label, marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
     
     fig2.update_layout(
         barmode='group', 
@@ -167,12 +172,10 @@ try:
     st.markdown("---")
     st.subheader("3. 연간 누적 공급량 vs 판매량 차이(Gap) 분석 테이블 (GJ)")
     
-    # [핵심 수정] 하단 표(네모표)에도 토글 상태가 반영된 데이터(df_filtered_plot1)를 사용하도록 동기화
     df_table = df_filtered_plot1.groupby('연도')[['공급량', '판매량']].sum().reset_index()
     df_table['차이(Gap) [공급-판매]'] = df_table['공급량'] - df_table['판매량']
     df_table['대비(%)'] = np.where(df_table['공급량'] > 0, (df_table['차이(Gap) [공급-판매]'] / df_table['공급량'] * 100), 0).round(2)
     
-    # 토글 활성화 시 표의 열 헤더도 직관적으로 변경해주면 좋지만, 기존 유지 요청에 따라 값만 연동시켰습니다.
     formatted_table = df_table.style.format({
         '공급량': '{:,.0f}',
         '판매량': '{:,.0f}',
