@@ -4,9 +4,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime
 
-# 웹 페이지 기본 설정 (가로로 넓게 쓰기)
+# 웹 페이지 기본 설정
 st.set_page_config(page_title="공급량 vs 판매량 대시보드", layout="wide")
 
 def convert_to_csv_url(url):
@@ -34,22 +33,24 @@ def preprocess_data(df_sales, df_supply, df_temp):
         df.columns = df.columns.str.strip()
         df.rename(columns={df.columns[0]: '년월'}, inplace=True)
 
-    exclude_cols = ['년월', '연', '월', '평균기온', '날짜']
+    # [수정된 핵심 포인트] 시트에 이미 존재할지 모르는 '합계' 관련 컬럼들을 sum 대상에서 철저히 배제합니다.
+    exclude_cols = ['년월', '연', '월', '평균기온', '날짜', '합계', '총계', '총합', '총합계']
     
-    # 2. 판매량 합산 (콤마 제거 및 형변환, 기존 GJ 단위 유지)
+    # 2. 판매량 합산 (순수 개별 용도만 더함)
     sales_items = [c for c in df_sales.columns if c not in exclude_cols]
     for col in sales_items:
         df_sales[col] = df_sales[col].astype(str).str.replace(',', '', regex=False)
         df_sales[col] = pd.to_numeric(df_sales[col], errors='coerce').fillna(0)
+    
     df_sales['총판매량'] = df_sales[sales_items].sum(axis=1)
     df_sales_monthly = df_sales[['년월', '총판매량']].rename(columns={'총판매량': '판매량'})
     
-    # 3. 공급량 합산 및 단위 변환 (MJ -> GJ 변환을 위해 1000으로 나눔)
+    # 3. 공급량 합산 및 단위 변환 (순수 개별 용도만 더한 뒤 MJ -> GJ 변환을 위해 1000으로 나눔)
     supply_items = [c for c in df_supply.columns if c not in exclude_cols]
     for col in supply_items:
         df_supply[col] = df_supply[col].astype(str).str.replace(',', '', regex=False)
         df_supply[col] = pd.to_numeric(df_supply[col], errors='coerce').fillna(0)
-    # 합산 후 1000으로 나누어 단위를 GJ로 통일
+        
     df_supply['총공급량'] = df_supply[supply_items].sum(axis=1) / 1000
     df_supply_monthly = df_supply[['년월', '총공급량']].rename(columns={'총공급량': '공급량'})
     
@@ -65,7 +66,7 @@ def preprocess_data(df_sales, df_supply, df_temp):
     df_merged = pd.merge(df_supply_monthly, df_sales_monthly, on='년월', how='inner')
     df_merged = pd.merge(df_merged, df_temp_monthly, on='년월', how='inner')
     
-    # 6. 파생변수 생성 (날짜, 연, 월, 분기, 반기)
+    # 6. 파생변수 생성
     df_merged['년월'] = pd.to_datetime(df_merged['년월'], errors='coerce')
     df_merged = df_merged.dropna(subset=['년월']).sort_values('년월').reset_index(drop=True)
     
@@ -81,11 +82,10 @@ def preprocess_data(df_sales, df_supply, df_temp):
 st.title("📊 도시가스 공급량 vs 판매량 동적 대시보드 (단위: GJ)")
 
 try:
-    with st.spinner("데이터를 실시간으로 가져오고 변환하는 중입니다..."):
+    with st.spinner("데이터를 실시간으로 가져오고 정확한 합산을 수행하는 중입니다..."):
         df_sales, df_supply, df_temp = load_data()
         df_master = preprocess_data(df_sales, df_supply, df_temp)
     
-    # --- 1. 기간 선택 필터 ---
     st.markdown("### 📅 분석 기간 설정")
     min_date = df_master['년월'].min().to_pydatetime()
     max_date = df_master['년월'].max().to_pydatetime()
@@ -100,12 +100,9 @@ try:
     df_filtered = df_master.loc[mask]
 
     st.markdown("---")
-
-    # --- 2. 동적 월별 그래프 ---
     st.subheader("1. 월별 공급량/판매량(GJ) 및 기온 추이")
     
     fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-    
     fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['공급량'], mode='lines+markers', name='공급량', line=dict(color='#1f77b4', width=2)), secondary_y=False)
     fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['판매량'], mode='lines+markers', name='판매량', line=dict(color='#ff7f0e', width=2)), secondary_y=False)
     fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot')), secondary_y=True)
@@ -113,12 +110,9 @@ try:
     fig1.update_layout(hovermode='x unified', margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     fig1.update_yaxes(title_text="물량 (GJ)", secondary_y=False)
     fig1.update_yaxes(title_text="기온 (°C)", secondary_y=True)
-    
     st.plotly_chart(fig1, use_container_width=True)
     
     st.markdown("---")
-
-    # --- 3. 기간별 누적 막대그래프 ---
     st.subheader("2. 누적 실적 막대그래프 비교 (GJ)")
     
     period_choice = st.radio("보기 기준을 선택하세요:", ('연간', '반기별', '분기별'), horizontal=True)
@@ -141,8 +135,6 @@ try:
     st.plotly_chart(fig2, use_container_width=True)
 
     st.markdown("---")
-
-    # --- 4. 연간 누적 차이(Gap) 분석 표 ---
     st.subheader("3. 연간 누적 공급량 vs 판매량 차이(Gap) 분석 테이블 (GJ)")
     
     df_table = df_filtered.groupby('연도')[['공급량', '판매량']].sum().reset_index()
