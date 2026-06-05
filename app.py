@@ -87,28 +87,45 @@ try:
     min_date = df_master['년월'].min().date()
     max_date = df_master['년월'].max().date()
     
-    # 디폴트 시작일을 2017년 1월 1일로 설정 (데이터가 더 짧을 경우를 대비해 min_date와 비교)
+    # 디폴트 시작일을 2017년 1월 1일로 설정
     default_start = pd.to_datetime('2017-01-01').date()
     if default_start < min_date:
         default_start = min_date
     
     col1, col2 = st.columns(2)
     with col1:
-        # format="YYYY-MM" 속성을 통해 화면에 월까지만 표시되도록 설정
-        start_date = st.date_input("시작 월", value=default_start, min_value=min_date, max_value=max_date, format="YYYY-MM")
+        # [수정] format="YYYY-MM-DD"로 에러 해결
+        start_date = st.date_input("시작 월", value=default_start, min_value=min_date, max_value=max_date, format="YYYY-MM-DD")
     with col2:
-        end_date = st.date_input("종료 월", value=max_date, min_value=min_date, max_value=max_date, format="YYYY-MM")
+        end_date = st.date_input("종료 월", value=max_date, min_value=min_date, max_value=max_date, format="YYYY-MM-DD")
     
+    # 기본 필터링 데이터 (표, 누적 그래프용)
     mask = (df_master['년월'] >= pd.to_datetime(start_date)) & (df_master['년월'] <= pd.to_datetime(end_date))
     df_filtered = df_master.loc[mask]
 
     st.markdown("---")
     st.subheader("1. 월별 공급량/판매량(GJ) 및 기온 추이")
     
+    # [추가] 1개월 Lagging 토글 버튼
+    lag_active = st.toggle("🔄 1개월 Lagging 반영 (공급량 실적을 1개월 뒤로 시프트하여 가정용 청구 시차 보정)")
+    
+    # 1번째 그래프를 위한 별도의 데이터프레임 구성
+    df_plot1 = df_master.copy()
+    if lag_active:
+        # 전체 데이터 기준에서 공급량을 한 칸(1개월) 아래로 시프트
+        df_plot1['공급량'] = df_plot1['공급량'].shift(1)
+        supply_label = '공급량 (1개월 Lag)'
+    else:
+        supply_label = '공급량'
+        
+    # 시프트 이후에 날짜를 잘라내야 필터링 구간의 첫 달 데이터가 유실되지 않음
+    mask_plot1 = (df_plot1['년월'] >= pd.to_datetime(start_date)) & (df_plot1['년월'] <= pd.to_datetime(end_date))
+    df_filtered_plot1 = df_plot1.loc[mask_plot1]
+    
     fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-    fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['공급량'], mode='lines+markers', name='공급량', line=dict(color='#1f77b4', width=2)), secondary_y=False)
-    fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['판매량'], mode='lines+markers', name='판매량', line=dict(color='#ff7f0e', width=2)), secondary_y=False)
-    fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot')), secondary_y=True)
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['공급량'], mode='lines+markers', name=supply_label, line=dict(color='#1f77b4', width=2)), secondary_y=False)
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name='판매량', line=dict(color='#ff7f0e', width=2)), secondary_y=False)
+    fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot')), secondary_y=True)
     
     fig1.update_layout(
         hovermode='x unified', 
@@ -131,6 +148,7 @@ try:
     else:
         group_col = '분기명'
         
+    # 2번 막대그래프와 3번 표는 실제 실적 기준(Lag 미반영 데이터) 사용
     df_grouped = df_filtered.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
     
     fig2 = go.Figure()
@@ -151,7 +169,6 @@ try:
     
     df_table = df_filtered.groupby('연도')[['공급량', '판매량']].sum().reset_index()
     df_table['차이(Gap) [공급-판매]'] = df_table['공급량'] - df_table['판매량']
-    # 명칭 변경: 손실율(%) -> 대비(%)
     df_table['대비(%)'] = np.where(df_table['공급량'] > 0, (df_table['차이(Gap) [공급-판매]'] / df_table['공급량'] * 100), 0).round(2)
     
     formatted_table = df_table.style.format({
@@ -161,7 +178,6 @@ try:
         '대비(%)': '{:.2f}%'
     })
     
-    # hide_index=True를 통해 좌측 번호 열 삭제
     st.dataframe(formatted_table, use_container_width=True, hide_index=True)
 
 except Exception as e:
