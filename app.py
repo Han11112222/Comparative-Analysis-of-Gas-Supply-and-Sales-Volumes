@@ -76,7 +76,6 @@ def preprocess_data(df_sales, df_supply, df_temp):
     return df_merged
 
 # --- UI 레이아웃 및 실행 ---
-# [수정] 대시보드 제목 변경
 st.title("📊 DSE 공급량 vs 판매량 현황 분석 (단위: GJ)")
 
 try:
@@ -149,10 +148,11 @@ try:
     else:
         group_col = '분기명'
         
-    df_grouped = df_filtered.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
+    # [핵심 수정] 막대그래프에도 토글 상태가 반영된 데이터(df_filtered_plot1)를 사용하도록 동기화
+    df_grouped = df_filtered_plot1.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
     
     fig2 = go.Figure()
-    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name='공급량 누적', marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
+    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name=supply_label, marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
     fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
     
     fig2.update_layout(
@@ -167,10 +167,12 @@ try:
     st.markdown("---")
     st.subheader("3. 연간 누적 공급량 vs 판매량 차이(Gap) 분석 테이블 (GJ)")
     
-    df_table = df_filtered.groupby('연도')[['공급량', '판매량']].sum().reset_index()
+    # [핵심 수정] 하단 표(네모표)에도 토글 상태가 반영된 데이터(df_filtered_plot1)를 사용하도록 동기화
+    df_table = df_filtered_plot1.groupby('연도')[['공급량', '판매량']].sum().reset_index()
     df_table['차이(Gap) [공급-판매]'] = df_table['공급량'] - df_table['판매량']
     df_table['대비(%)'] = np.where(df_table['공급량'] > 0, (df_table['차이(Gap) [공급-판매]'] / df_table['공급량'] * 100), 0).round(2)
     
+    # 토글 활성화 시 표의 열 헤더도 직관적으로 변경해주면 좋지만, 기존 유지 요청에 따라 값만 연동시켰습니다.
     formatted_table = df_table.style.format({
         '공급량': '{:,.0f}',
         '판매량': '{:,.0f}',
