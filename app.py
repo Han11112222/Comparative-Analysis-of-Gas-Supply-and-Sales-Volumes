@@ -16,7 +16,8 @@ def convert_to_csv_url(url):
         gid_part = f"&gid={gid}"
     return f"{base_url}/export?format=csv{gid_part}"
 
-@st.cache_data
+# [핵심 수정] ttl=60을 추가하여 60초마다 구글 시트의 변경사항을 새로고침합니다!
+@st.cache_data(ttl=60)
 def load_data():
     sales_url = "https://docs.google.com/spreadsheets/d/1-8RIPIkjnVXxoh5QJs6598nnHkWOGmrO655jr3b3g04/edit?gid=0#gid=0"
     supply_url = "https://docs.google.com/spreadsheets/d/1vS-a9XrbjjIznHxntuFIM6hmml6qTlR2Cayw77p_Rao/edit?gid=0#gid=0"
@@ -27,50 +28,32 @@ def load_data():
     df_temp = pd.read_csv(convert_to_csv_url(temp_url))
     return df_sales, df_supply, df_temp
 
-def get_pure_item_columns(df):
-    """
-    중간 합산(소계, 합계 등) 컬럼을 찾아내어 덧셈 대상에서 철저히 제외하는 핵심 필터 함수입니다.
-    """
-    exclude_exact = ['년월', '연', '월', '평균기온', '날짜']
-    # 중복 더하기를 유발하는 텍스트 키워드들
-    exclude_keywords = ['합계', '총계', '소계', '전체', '총합', '누적', 'unnamed', '기온']
-    
-    pure_cols = []
-    for col in df.columns:
-        col_str = str(col).lower().strip()
-        if col in exclude_exact:
-            continue
-        # '열병합용'은 정상 데이터이므로 제외하지 않음
-        if '열병합용' not in col_str and any(keyword in col_str for keyword in exclude_keywords):
-            continue
-        pure_cols.append(col)
-    return pure_cols
-
 def preprocess_data(df_sales, df_supply, df_temp):
-    # 1. 컬럼명 전처리 (안전하게 A열을 '년월'로 변경)
+    # 1. 컬럼명 전처리 (A열을 무조건 '년월'로 통일)
     for df in [df_sales, df_supply, df_temp]:
         df.columns = df.columns.str.strip()
         df.rename(columns={df.columns[0]: '년월'}, inplace=True)
 
-    # 2. 판매량 합산 (콤마 제거 및 강력 필터링 적용)
-    sales_items = get_pure_item_columns(df_sales)
-    for col in sales_items:
-        df_sales[col] = df_sales[col].astype(str).str.replace(',', '', regex=False)
-        df_sales[col] = pd.to_numeric(df_sales[col], errors='coerce').fillna(0)
+    # 합산에서 제외할 기본 정보 컬럼들
+    exclude_info = ['년월', '연', '월', '평균기온', '날짜']
+
+    # 2. 판매량 합산 (숫자 변환 오류 방지 및 결측치 0 처리)
+    sales_cols = [c for c in df_sales.columns if c not in exclude_info]
+    for col in sales_cols:
+        df_sales[col] = pd.to_numeric(df_sales[col].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0)
     
-    df_sales['총판매량'] = df_sales[sales_items].sum(axis=1)
+    df_sales['총판매량'] = df_sales[sales_cols].sum(axis=1)
     df_sales_monthly = df_sales.groupby('년월')['총판매량'].sum().reset_index().rename(columns={'총판매량': '판매량'})
     
     # 3. 공급량 합산 및 단위 변환 (MJ -> GJ 변환을 위해 1000으로 나눔)
-    supply_items = get_pure_item_columns(df_supply)
-    for col in supply_items:
-        df_supply[col] = df_supply[col].astype(str).str.replace(',', '', regex=False)
-        df_supply[col] = pd.to_numeric(df_supply[col], errors='coerce').fillna(0)
+    supply_cols = [c for c in df_supply.columns if c not in exclude_info]
+    for col in supply_cols:
+        df_supply[col] = pd.to_numeric(df_supply[col].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0)
         
-    df_supply['총공급량'] = df_supply[supply_items].sum(axis=1) / 1000
+    df_supply['총공급량'] = df_supply[supply_cols].sum(axis=1) / 1000
     df_supply_monthly = df_supply.groupby('년월')['총공급량'].sum().reset_index().rename(columns={'총공급량': '공급량'})
     
-    # 4. 기온 데이터 처리 (중복 행 방지를 위해 평균으로 묶음)
+    # 4. 기온 데이터 처리 (평균값 산출)
     if '평균기온' in df_temp.columns:
         df_temp_monthly = df_temp.groupby('년월')['평균기온'].mean().reset_index()
     elif '평균기온' in df_supply.columns:
@@ -78,11 +61,11 @@ def preprocess_data(df_sales, df_supply, df_temp):
     else:
         df_temp_monthly = pd.DataFrame({'년월': df_supply_monthly['년월'].unique(), '평균기온': 0})
             
-    # 5. 데이터 병합 (월별 마스터 테이블 생성)
-    df_merged = pd.merge(df_supply_monthly, df_sales_monthly, on='년월', how='inner')
-    df_merged = pd.merge(df_merged, df_temp_monthly, on='년월', how='inner')
+    # 5. 데이터 병합 (Outer 조인을 통해 어느 한 쪽에만 데이터가 있어도 누락되지 않도록 방어)
+    df_merged = pd.merge(df_supply_monthly, df_sales_monthly, on='년월', how='outer').fillna(0)
+    df_merged = pd.merge(df_merged, df_temp_monthly, on='년월', how='left').fillna(0)
     
-    # 6. 파생변수 생성
+    # 6. 파생변수 생성 (날짜 정렬 및 분기/반기)
     df_merged['년월'] = pd.to_datetime(df_merged['년월'], errors='coerce')
     df_merged = df_merged.dropna(subset=['년월']).sort_values('년월').reset_index(drop=True)
     
@@ -98,7 +81,7 @@ def preprocess_data(df_sales, df_supply, df_temp):
 st.title("📊 도시가스 공급량 vs 판매량 동적 대시보드 (단위: GJ)")
 
 try:
-    with st.spinner("데이터를 실시간으로 가져오고 중복 합산을 제거하는 중입니다..."):
+    with st.spinner("최신 데이터를 로딩하고 정확하게 집계하는 중입니다..."):
         df_sales, df_supply, df_temp = load_data()
         df_master = preprocess_data(df_sales, df_supply, df_temp)
     
@@ -123,17 +106,11 @@ try:
     fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['판매량'], mode='lines+markers', name='판매량', line=dict(color='#ff7f0e', width=2)), secondary_y=False)
     fig1.add_trace(go.Scatter(x=df_filtered['년월'], y=df_filtered['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot')), secondary_y=True)
     
-    # [수정된 부분] 툴바와 겹치지 않게 범례를 좌측 상단으로 높이 띄움 (margin 추가)
+    # 툴바와 겹치지 않게 범례 하단 중앙 배치
     fig1.update_layout(
         hovermode='x unified', 
-        margin=dict(l=0, r=0, t=60, b=0), # 위쪽 여백 확보
-        legend=dict(
-            orientation="h", 
-            yanchor="bottom", 
-            y=1.12,  # 상단으로 이동
-            xanchor="left", 
-            x=0      # 좌측 정렬
-        )
+        margin=dict(l=0, r=0, t=30, b=50),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5)
     )
     fig1.update_yaxes(title_text="물량 (GJ)", secondary_y=False)
     fig1.update_yaxes(title_text="기온 (°C)", secondary_y=True)
@@ -157,12 +134,12 @@ try:
     fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name='공급량 누적', marker_color='#4bc0c0'))
     fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#ff6384'))
     
-    # 막대그래프 범례도 동일하게 조정
+    # 막대그래프 범례도 하단 중앙 배치
     fig2.update_layout(
         barmode='group', 
         hovermode='x unified', 
-        margin=dict(l=0, r=0, t=50, b=0),
-        legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="left", x=0)
+        margin=dict(l=0, r=0, t=30, b=50),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5)
     )
     fig2.update_yaxes(title_text="누적 물량 (GJ)")
     st.plotly_chart(fig2, use_container_width=True)
@@ -172,7 +149,8 @@ try:
     
     df_table = df_filtered.groupby('연도')[['공급량', '판매량']].sum().reset_index()
     df_table['차이(Gap) [공급-판매]'] = df_table['공급량'] - df_table['판매량']
-    df_table['손실율(%)'] = (df_table['차이(Gap) [공급-판매]'] / df_table['공급량'] * 100).round(2)
+    # 0으로 나누는 에러(Division by zero) 방지
+    df_table['손실율(%)'] = np.where(df_table['공급량'] > 0, (df_table['차이(Gap) [공급-판매]'] / df_table['공급량'] * 100), 0).round(2)
     
     formatted_table = df_table.style.format({
         '공급량': '{:,.0f}',
