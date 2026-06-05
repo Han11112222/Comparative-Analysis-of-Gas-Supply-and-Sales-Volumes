@@ -76,7 +76,8 @@ def preprocess_data(df_sales, df_supply, df_temp):
     return df_merged
 
 # --- UI 레이아웃 및 실행 ---
-st.title("📊 도시가스 공급량 vs 판매량 동적 대시보드 (단위: GJ)")
+# [수정] 대시보드 제목 변경
+st.title("📊 DSE 공급량 vs 판매량 현황 분석 (단위: GJ)")
 
 try:
     with st.spinner("최신 데이터를 로딩하고 정확하게 집계하는 중입니다..."):
@@ -123,7 +124,6 @@ try:
     df_filtered_plot1 = df_plot1.loc[mask_plot1]
     
     fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-    # [수정] hovertemplate 추가하여 M 단위를 없애고 콤마 표시 및 GJ, °C 단위 명시
     fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['공급량'], mode='lines+markers', name=supply_label, line=dict(color='#005b96', width=2), hovertemplate='%{y:,.0f} GJ'), secondary_y=False)
     fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['판매량'], mode='lines+markers', name='판매량', line=dict(color='#e67e22', width=2), hovertemplate='%{y:,.0f} GJ'), secondary_y=False)
     fig1.add_trace(go.Scatter(x=df_filtered_plot1['년월'], y=df_filtered_plot1['평균기온'], mode='lines+markers', name='평균기온', line=dict(color='#d62728', width=2, dash='dot'), hovertemplate='%{y:.1f} °C'), secondary_y=True)
@@ -152,7 +152,6 @@ try:
     df_grouped = df_filtered.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
     
     fig2 = go.Figure()
-    # [수정] 누적 막대그래프에도 hovertemplate 추가
     fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name='공급량 누적', marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
     fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name='판매량 누적', marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
     
