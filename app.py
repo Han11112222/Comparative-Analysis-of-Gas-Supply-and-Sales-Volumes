@@ -138,7 +138,6 @@ try:
     fig1.update_yaxes(title_text="기온 (°C)", secondary_y=True)
     st.plotly_chart(fig1, use_container_width=True)
 
-    # 2번 그래프와 3번 테이블이 들어갈 빈 공간(Container)을 먼저 확보합니다.
     st.markdown("---")
     st.subheader("2. 누적 실적 막대그래프 비교 (GJ)")
     period_choice = st.radio("보기 기준을 선택하세요:", ('연간', '반기별', '분기별'), horizontal=True)
@@ -148,7 +147,7 @@ try:
     st.subheader("3. 연간 누적 공급량 vs 판매량 차이(Gap) 분석 테이블 (GJ)")
     table3_container = st.empty()
 
-    # === [요청사항] 연도별 월별 상세 비교 섹션 (맨 아래로 이동) ===
+    # === 연도별 월별 상세 비교 섹션 ===
     st.markdown("---")
     st.subheader("연도별 월별 상세 비교")
 
@@ -156,10 +155,9 @@ try:
     
     col_sel, col_empty = st.columns([1, 4])
     with col_sel:
-        # 하이라이트를 위해 선택된 연도 값을 받습니다.
         selected_detail_year = st.selectbox("분석 연도를 선택하세요", all_years_list, index=all_years_list.index(2025) if 2025 in all_years_list else len(all_years_list)-1)
 
-    # --- 확보해둔 공간(Container)에 2번 그래프와 3번 테이블을 렌더링 (selected_detail_year 적용) ---
+    # --- 2번 그래프 렌더링 (테두리 하이라이트 삭제됨) ---
     with chart2_container:
         if period_choice == '연간':
             group_col = '연도'
@@ -171,21 +169,9 @@ try:
         df_grouped = df_filtered_plot1.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
         fig2 = go.Figure()
         
-        if period_choice == '연간' and selected_detail_year in df_grouped['연도'].values:
-            marker_line_width = [3 if year == selected_detail_year else 0 for year in df_grouped['연도']]
-            marker_line_color = ['#d35400' if year == selected_detail_year else 'rgba(0,0,0,0)' for year in df_grouped['연도']]
-
-            fig2.add_trace(go.Bar(
-                x=df_grouped[group_col], y=df_grouped['공급량'], name=supply_label, 
-                marker=dict(color='#005b96', line=dict(width=marker_line_width, color=marker_line_color)), hovertemplate='%{y:,.0f} GJ'
-            ))
-            fig2.add_trace(go.Bar(
-                x=df_grouped[group_col], y=df_grouped['판매량'], name=sales_label, 
-                marker=dict(color='#e67e22', line=dict(width=marker_line_width, color=marker_line_color)), hovertemplate='%{y:,.0f} GJ'
-            ))
-        else:
-            fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name=supply_label, marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
-            fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name=sales_label, marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
+        # 기본 막대그래프 렌더링
+        fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name=supply_label, marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
+        fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name=sales_label, marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
         
         fig2.update_layout(
             barmode='group', hovermode='x unified', margin=dict(l=0, r=0, t=30, b=50),
@@ -194,6 +180,7 @@ try:
         fig2.update_yaxes(title_text="누적 물량 (GJ)")
         st.plotly_chart(fig2, use_container_width=True)
 
+    # --- 3번 테이블 렌더링 ---
     with table3_container:
         df_table = df_filtered_plot1.groupby('연도')[['공급량', '판매량']].sum().reset_index()
         df_table['차이(Gap) [공급-판매]'] = df_table['공급량'] - df_table['판매량']
@@ -235,13 +222,37 @@ try:
         fig_detail.update_yaxes(title_text="물량 (GJ)")
         st.plotly_chart(fig_detail, use_container_width=True)
 
-        # [요청사항] 월별 상세 테이블 추가
+        # 월별 상세 데이터 계산
         df_detail_final['차이(Gap) [공급-판매]'] = df_detail_final['공급량'] - df_detail_final['판매량']
         df_detail_final['대비(%)'] = np.where(df_detail_final['공급량'] > 0, (df_detail_final['차이(Gap) [공급-판매]'] / df_detail_final['공급량'] * 100), 0).round(2)
         
-        formatted_monthly_table = df_detail_final[['월명', '공급량', '판매량', '차이(Gap) [공급-판매]', '대비(%)']].style.format({
-            '공급량': '{:,.0f}', '판매량': '{:,.0f}', '차이(Gap) [공급-판매]': '{:,.0f}', '대비(%)': '{:.2f}%'
+        # 합계 계산 및 행 추가
+        total_supply = df_detail_final['공급량'].sum()
+        total_sales = df_detail_final['판매량'].sum()
+        total_gap = total_supply - total_sales
+        total_ratio = (total_gap / total_supply * 100) if total_supply > 0 else 0
+        
+        total_row = pd.DataFrame({
+            '월명': ['합계'],
+            '공급량': [total_supply],
+            '판매량': [total_sales],
+            '차이(Gap) [공급-판매]': [total_gap],
+            '대비(%)': [total_ratio]
         })
+        
+        # 원본 데이터와 합계 데이터 합치기
+        df_detail_display = pd.concat([df_detail_final[['월명', '공급량', '판매량', '차이(Gap) [공급-판매]', '대비(%)']], total_row], ignore_index=True)
+        
+        # 합계 행 하이라이트 함수
+        def highlight_total_row(row):
+            if row.get('월명') == '합계':
+                return ['background-color: #ffe082; font-weight: bold; padding: 5px;' for _ in row.index]
+            return ['' for _ in row.index]
+
+        # 포맷 및 스타일 적용
+        formatted_monthly_table = df_detail_display.style.format({
+            '공급량': '{:,.0f}', '판매량': '{:,.0f}', '차이(Gap) [공급-판매]': '{:,.0f}', '대비(%)': '{:.2f}%'
+        }).apply(highlight_total_row, axis=1)
         
         st.markdown(f"**{selected_detail_year}년 월별 수치 세부 현황**")
         st.dataframe(formatted_monthly_table, use_container_width=True, hide_index=True)
