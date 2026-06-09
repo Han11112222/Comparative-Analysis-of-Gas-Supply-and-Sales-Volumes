@@ -140,7 +140,62 @@ try:
     fig1.update_yaxes(title_text="물량 (GJ)", secondary_y=False)
     fig1.update_yaxes(title_text="기온 (°C)", secondary_y=True)
     st.plotly_chart(fig1, use_container_width=True)
+
+    # === [요청사항 추가 시작] 1번째 그래프 하단: 특정 연도 선택 및 월별 막대그래프 ===
+    st.markdown("---")
+    st.subheader("1-1. 특정 연도 월별 상세 분석")
+
+    # 가용한 전체 연도 리스트 (데이터 전체 기간 기반)
+    all_years_list = sorted(df_master['연도'].unique().tolist())
     
+    col_sel, col_empty = st.columns([1, 4])
+    with col_sel:
+        # 분석할 특정 연도 선택 Selectbox 추가
+        selected_detail_year = st.selectbox("분석 연도를 선택하세요", all_years_list, index=all_years_list.index(2023) if 2023 in all_years_list else 0)
+
+    # 선택된 연도 데이터 필터링 (Lagging 토글 상태 반영된 df_plot1 기반)
+    df_detail_year = df_plot1[df_plot1['연도'] == selected_detail_year].sort_values('월').copy()
+
+    # 데이터가 존재하는 경우에만 그래프 생성
+    if not df_detail_year.empty:
+        # 월별 공급량/판매량 합산 (0으로 채우기 위해 전체 12개월 스켈레톤 데이터프레임 생성)
+        full_months = pd.DataFrame({'월': range(1, 13)})
+        df_detail_grouped = df_detail_year.groupby('월')[['공급량', '판매량']].sum().reset_index()
+        df_detail_final = pd.merge(full_months, df_detail_grouped, on='월', how='left').fillna(0)
+        df_detail_final['월명'] = [f"{m}월" for m in df_detail_final['월']]
+
+        # plotly 막대그래프 생성
+        fig_detail = go.Figure()
+        
+        # dynamic labels defined above 반영
+        fig_detail.add_trace(go.Bar(
+            x=df_detail_final['월명'], 
+            y=df_detail_final['공급량'], 
+            name=supply_label, 
+            marker_color='#005b96', 
+            hovertemplate='%{y:,.0f} GJ'
+        ))
+        fig_detail.add_trace(go.Bar(
+            x=df_detail_final['월명'], 
+            y=df_detail_final['판매량'], 
+            name=sales_label, 
+            marker_color='#e67e22', 
+            hovertemplate='%{y:,.0f} GJ'
+        ))
+
+        fig_detail.update_layout(
+            title=f"{selected_detail_year}년 월별 상세 실적 (Jan-Dec)",
+            barmode='group', 
+            hovermode='x unified', 
+            margin=dict(l=0, r=0, t=50, b=50),
+            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5)
+        )
+        fig_detail.update_yaxes(title_text="물량 (GJ)")
+        st.plotly_chart(fig_detail, use_container_width=True)
+    else:
+        st.warning(f"{selected_detail_year}년에 대한 데이터가 존재하지 않습니다.")
+    # === [요청사항 추가 끝] ===
+
     st.markdown("---")
     st.subheader("2. 누적 실적 막대그래프 비교 (GJ)")
     
@@ -156,9 +211,35 @@ try:
     df_grouped = df_filtered_plot1.groupby(group_col)[['공급량', '판매량']].sum().reset_index()
     
     fig2 = go.Figure()
-    # [수정] 막대그래프 범례 이름에도 라벨 변수 적용
-    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name=supply_label, marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
-    fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name=sales_label, marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
+    
+    # [요청사항 추가] 하이라이트 박스 효과 적용 logic
+    # 보기 기준이 '연간'이고, 위에서 선택된 연도가 데이터에 존재하는 경우에만 하이라이트 적용
+    if period_choice == '연간' and selected_detail_year in df_grouped['연도'].values:
+        # 선택된 연도에 대한 테두리 스타일 정의 (오렌지색 두꺼운 테두리)
+        # go.Bar에서는 marker.line을 사용하며, 리스트 형태로 각 포인트별 속성 지정 가능
+        marker_line_width = [3 if year == selected_detail_year else 0 for year in df_grouped['연도']]
+        marker_line_color = ['#d35400' if year == selected_detail_year else 'rgba(0,0,0,0)' for year in df_grouped['연도']] # 투명 테두리
+
+        # 공급량 막대
+        fig2.add_trace(go.Bar(
+            x=df_grouped[group_col], 
+            y=df_grouped['공급량'], 
+            name=supply_label, 
+            marker=dict(color='#005b96', line=dict(width=marker_line_width, color=marker_line_color)), 
+            hovertemplate='%{y:,.0f} GJ'
+        ))
+        # 판매량 막대
+        fig2.add_trace(go.Bar(
+            x=df_grouped[group_col], 
+            y=df_grouped['판매량'], 
+            name=sales_label, 
+            marker=dict(color='#e67e22', line=dict(width=marker_line_width, color=marker_line_color)), 
+            hovertemplate='%{y:,.0f} GJ'
+        ))
+    else:
+        # 하이라이트 미적용 원본 코드
+        fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['공급량'], name=supply_label, marker_color='#005b96', hovertemplate='%{y:,.0f} GJ'))
+        fig2.add_trace(go.Bar(x=df_grouped[group_col], y=df_grouped['판매량'], name=sales_label, marker_color='#e67e22', hovertemplate='%{y:,.0f} GJ'))
     
     fig2.update_layout(
         barmode='group', 
@@ -176,12 +257,24 @@ try:
     df_table['차이(Gap) [공급-판매]'] = df_table['공급량'] - df_table['판매량']
     df_table['대비(%)'] = np.where(df_table['공급량'] > 0, (df_table['차이(Gap) [공급-판매]'] / df_table['공급량'] * 100), 0).round(2)
     
+    # [요청사항 추가] 테이블 행(Row) 하이라이트 스타일 함수 정의
+    # 연도가 선택된 연도와 일치하는 행 전체에 스타일 적용
+    def highlight_selected_row(row, selected_year):
+        style = ['' for _ in row.index] # 기본 스타일
+        if row.get('연도') == selected_year:
+            # 옅은 주황색 배경, 볼드체, 약간의 padding 추가하여 강조 효과
+            style = ['background-color: #ffe082; font-weight: bold; padding: 5px;' for _ in row.index]
+        return style
+
     formatted_table = df_table.style.format({
         '공급량': '{:,.0f}',
         '판매량': '{:,.0f}',
         '차이(Gap) [공급-판매]': '{:,.0f}',
         '대비(%)': '{:.2f}%'
     })
+    
+    # [요청사항 추가] 스타일 함수를 데이터프레임에 적용 (axis=1은 행 기준)
+    formatted_table = formatted_table.apply(highlight_selected_row, axis=1, selected_year=selected_detail_year)
     
     st.dataframe(formatted_table, use_container_width=True, hide_index=True)
 
